@@ -2,7 +2,6 @@ const fileInput = document.getElementById("fileInput");
 const toleranceInput = document.getElementById("tolerance");
 const toleranceValue = document.getElementById("toleranceValue");
 const dropArea = document.getElementById("dropArea");
-const origPreview = document.getElementById("origPreview");
 const trimPreview = document.getElementById("trimPreview");
 const trimMeta = document.getElementById("trimMeta");
 const downloadBtn = document.getElementById("downloadBtn");
@@ -17,10 +16,7 @@ const setMessage = (text) => {
 };
 
 const resetState = () => {
-  if (origPreview) {
-    origPreview.removeAttribute("src");
-  }
-  trimPreview.removeAttribute("src");
+  origPreview.removeAttribute("src");
   trimPreview.removeAttribute("src");
   trimMeta.textContent = "-";
   trimmedDataUrl = null;
@@ -31,178 +27,6 @@ const resetState = () => {
 };
 
 const formatSize = (width, height) => `${width} × ${height}px`;
-
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
-const getLuma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-const detectWatermarkPixels = (data, width, height) => {
-  const minDim = Math.min(width, height);
-  if (minDim < 40) return null;
-
-  const patchSize = clamp(Math.round(minDim * 0.18), 40, 140);
-  const startX = Math.max(0, width - patchSize);
-  const startY = Math.max(0, height - patchSize);
-
-  const histogram = new Array(256).fill(0);
-  let sampleCount = 0;
-
-  for (let y = startY; y < height; y += 1) {
-    for (let x = startX; x < width; x += 1) {
-      const idx = (y * width + x) * 4;
-      const a = data[idx + 3];
-      if (a < 16) continue;
-      const luma = Math.round(
-        getLuma(data[idx], data[idx + 1], data[idx + 2])
-      );
-      histogram[luma] += 1;
-      sampleCount += 1;
-    }
-  }
-
-  if (sampleCount === 0) return null;
-
-  let cumulative = 0;
-  let median = 0;
-  const target = sampleCount / 2;
-  for (let i = 0; i < histogram.length; i += 1) {
-    cumulative += histogram[i];
-    if (cumulative >= target) {
-      median = i;
-      break;
-    }
-  }
-
-  const delta = clamp(Math.round((255 - median) * 0.18), 10, 42);
-  const candidates = new Uint8Array(width * height);
-
-  for (let y = startY; y < height; y += 1) {
-    for (let x = startX; x < width; x += 1) {
-      const idx = (y * width + x) * 4;
-      const a = data[idx + 3];
-      if (a < 16) continue;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const luma = getLuma(r, g, b);
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      const neutral = max - min < 70;
-      if (neutral && luma >= median + delta) {
-        candidates[y * width + x] = 1;
-      }
-    }
-  }
-
-  const visited = new Uint8Array(width * height);
-  let bestPixels = null;
-  let bestSize = 0;
-
-  const stack = [];
-  for (let y = startY; y < height; y += 1) {
-    for (let x = startX; x < width; x += 1) {
-      const idx = y * width + x;
-      if (!candidates[idx] || visited[idx]) continue;
-
-      const pixels = [];
-      stack.length = 0;
-      stack.push(idx);
-      visited[idx] = 1;
-
-      while (stack.length) {
-        const current = stack.pop();
-        pixels.push(current);
-        const cx = current % width;
-        const cy = Math.floor(current / width);
-
-        const neighbors = [
-          current - 1,
-          current + 1,
-          current - width,
-          current + width,
-        ];
-
-        for (const n of neighbors) {
-          if (n < 0 || n >= width * height) continue;
-          const nx = n % width;
-          const ny = Math.floor(n / width);
-          if (nx < startX || ny < startY) continue;
-          if (!candidates[n] || visited[n]) continue;
-          visited[n] = 1;
-          stack.push(n);
-        }
-      }
-
-      if (pixels.length > bestSize) {
-        bestSize = pixels.length;
-        bestPixels = pixels;
-      }
-    }
-  }
-
-  if (!bestPixels) return null;
-
-  const maxSize = patchSize * patchSize * 0.35;
-  if (bestSize < 40 || bestSize > maxSize) return null;
-
-  return bestPixels;
-};
-
-const removeWatermark = (canvas) => {
-  const ctx = canvas.getContext("2d");
-  const { width, height } = canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const { data } = imageData;
-
-  const pixels = detectWatermarkPixels(data, width, height);
-  if (!pixels) return;
-
-  const mask = new Uint8Array(width * height);
-  for (const idx of pixels) {
-    mask[idx] = 1;
-  }
-
-  const radius = clamp(Math.round(Math.min(width, height) * 0.01), 3, 8);
-
-  for (const idx of pixels) {
-    const x = idx % width;
-    const y = Math.floor(idx / width);
-    let rSum = 0;
-    let gSum = 0;
-    let bSum = 0;
-    let aSum = 0;
-    let count = 0;
-
-    for (let dy = -radius; dy <= radius; dy += 1) {
-      const ny = y + dy;
-      if (ny < 0 || ny >= height) continue;
-      for (let dx = -radius; dx <= radius; dx += 1) {
-        const nx = x + dx;
-        if (nx < 0 || nx >= width) continue;
-        const nIdx = ny * width + nx;
-        if (mask[nIdx]) continue;
-        const offset = nIdx * 4;
-        const a = data[offset + 3];
-        if (a < 8) continue;
-        rSum += data[offset];
-        gSum += data[offset + 1];
-        bSum += data[offset + 2];
-        aSum += a;
-        count += 1;
-      }
-    }
-
-    if (count > 0) {
-      const offset = idx * 4;
-      data[offset] = Math.round(rSum / count);
-      data[offset + 1] = Math.round(gSum / count);
-      data[offset + 2] = Math.round(bSum / count);
-      data[offset + 3] = Math.round(aSum / count);
-    }
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-};
 
 const loadImageFromFile = (file) => {
   return new Promise((resolve, reject) => {
@@ -373,8 +197,6 @@ const trimImage = async (file, tolerance) => {
     bounds.width,
     bounds.height
   );
-
-  removeWatermark(output);
 
   trimmedDataUrl = output.toDataURL("image/png");
   trimPreview.src = trimmedDataUrl;
