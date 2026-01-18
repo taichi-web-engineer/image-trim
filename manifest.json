@@ -3,8 +3,18 @@
   "name": "Image Trim",
   "version": "0.1.0",
   "description": "画像の余白を自動でカットしてダウンロードします。",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Image Trim"
+    "default_title": "Image Trim",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   }
 }
