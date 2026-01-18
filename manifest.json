@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Image Trim",
+  "version": "0.1.0",
+  "description": "画像の余白を自動でカットしてダウンロードします。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Image Trim"
+  }
+}
