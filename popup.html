@@ -15,8 +15,8 @@
 
       <section class="uploader" id="dropArea">
         <label class="file" for="fileInput">
-          <input id="fileInput" type="file" accept="image/*" />
-          <span>画像を選択 / ドラッグ&ドロップ</span>
+          <input id="fileInput" type="file" accept="image/*" multiple />
+          <span>画像をまとめて選択 / ドラッグ&ドロップ</span>
         </label>
         <div class="hint">白や透明の余白に対応しています。</div>
       </section>
@@ -31,23 +31,27 @@
 
       <section class="previews">
         <div class="panel">
-          <div class="panel-title">トリミング後</div>
-          <div class="panel-body">
-            <img id="trimPreview" alt="トリミング後プレビュー" />
+          <div class="panel-header">
+            <div class="panel-title">トリミング後</div>
+            <div id="countMeta" class="count">0件</div>
           </div>
-          <div id="trimMeta" class="meta">-</div>
+          <div id="results" class="results"></div>
         </div>
       </section>
 
       <section class="actions">
-        <button id="downloadBtn" class="primary" type="button" disabled>
-          ダウンロード
+        <button id="downloadAllBtn" class="primary" type="button" disabled>
+          ZIPでまとめてダウンロード
+        </button>
+        <button id="clearBtn" class="ghost" type="button" disabled>
+          クリア
         </button>
       </section>
 
       <div id="message" class="message" role="status"></div>
     </main>
 
+    <script src="jszip.min.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -2,27 +2,53 @@ const fileInput = document.getElementById("fileInput");
 const toleranceInput = document.getElementById("tolerance");
 const toleranceValue = document.getElementById("toleranceValue");
 const dropArea = document.getElementById("dropArea");
-const trimPreview = document.getElementById("trimPreview");
-const trimMeta = document.getElementById("trimMeta");
-const downloadBtn = document.getElementById("downloadBtn");
+const results = document.getElementById("results");
+const countMeta = document.getElementById("countMeta");
+const downloadAllBtn = document.getElementById("downloadAllBtn");
+const clearBtn = document.getElementById("clearBtn");
 const message = document.getElementById("message");
 
-let trimmedDataUrl = null;
-let trimmedFilename = null;
-let latestImage = null;
+let trimmedItems = [];
 
 const setMessage = (text) => {
   message.textContent = text;
 };
 
+const dataUrlToBase64 = (dataUrl) => {
+  const parts = dataUrl.split(",");
+  return parts.length > 1 ? parts[1] : "";
+};
+
+const getUniqueFilename = (filename, usedNames) => {
+  if (!usedNames.has(filename)) {
+    usedNames.add(filename);
+    return filename;
+  }
+
+  const match = filename.match(/^(.*?)(\.[^.]*)?$/);
+  const base = match ? match[1] : filename;
+  const ext = match && match[2] ? match[2] : "";
+  let index = 2;
+  let nextName = `${base} (${index})${ext}`;
+  while (usedNames.has(nextName)) {
+    index += 1;
+    nextName = `${base} (${index})${ext}`;
+  }
+  usedNames.add(nextName);
+  return nextName;
+};
+
+const renderEmptyState = () => {
+  results.innerHTML = '<div class="empty-state">ここに結果が表示されます。</div>';
+};
+
 const resetState = () => {
-  origPreview.removeAttribute("src");
-  trimPreview.removeAttribute("src");
-  trimMeta.textContent = "-";
-  trimmedDataUrl = null;
-  trimmedFilename = null;
-  latestImage = null;
-  downloadBtn.disabled = true;
+  results.innerHTML = "";
+  renderEmptyState();
+  countMeta.textContent = "0件";
+  trimmedItems = [];
+  downloadAllBtn.disabled = true;
+  clearBtn.disabled = true;
   setMessage("");
 };
 
@@ -170,16 +196,9 @@ const findTrimBounds = (image, tolerance) => {
 
 const trimImage = async (file, tolerance) => {
   const img = await loadImageFromFile(file);
-  latestImage = img;
   const bounds = findTrimBounds(img, tolerance);
   if (!bounds) {
-    trimmedDataUrl = null;
-    trimmedFilename = null;
-    trimPreview.removeAttribute("src");
-    trimMeta.textContent = "-";
-    downloadBtn.disabled = true;
-    setMessage("余白以外が見つかりませんでした。許容誤差を調整してください。");
-    return;
+    return null;
   }
 
   const output = document.createElement("canvas");
@@ -198,40 +217,125 @@ const trimImage = async (file, tolerance) => {
     bounds.height
   );
 
-  trimmedDataUrl = output.toDataURL("image/png");
-  trimPreview.src = trimmedDataUrl;
-  trimMeta.textContent = `${formatSize(bounds.width, bounds.height)} / トリミング`;
-  trimmedFilename = `${file.name.replace(/\.[^/.]+$/, "")}--trim.png`;
-  downloadBtn.disabled = false;
-  setMessage("");
+  const trimmedDataUrl = output.toDataURL("image/png");
+  const trimmedFilename = `${file.name.replace(/\.[^/.]+$/, "")}.png`;
+
+  return {
+    dataUrl: trimmedDataUrl,
+    filename: trimmedFilename,
+    width: bounds.width,
+    height: bounds.height,
+  };
 };
 
-toleranceInput.addEventListener("input", () => {
-  toleranceValue.textContent = toleranceInput.value;
-  if (fileInput.files && fileInput.files[0]) {
-    trimImage(fileInput.files[0], toleranceInput.value).catch((err) => {
-      setMessage(err.message);
-    });
-  }
-});
+const createResultCard = (item) => {
+  const card = document.createElement("div");
+  card.className = "result-card";
 
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files && fileInput.files[0];
-  if (!file) {
+  const preview = document.createElement("div");
+  preview.className = "result-preview";
+  const img = document.createElement("img");
+  img.src = item.dataUrl;
+  img.alt = `${item.filename} preview`;
+  preview.appendChild(img);
+
+  const name = document.createElement("div");
+  name.className = "result-meta";
+  name.textContent = item.filename;
+
+  const size = document.createElement("div");
+  size.className = "result-meta";
+  size.textContent = formatSize(item.width, item.height);
+
+  const actions = document.createElement("div");
+  actions.className = "result-actions";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost btn-small";
+  button.textContent = "ダウンロード";
+  button.addEventListener("click", () => {
+    downloadFile(item.dataUrl, item.filename);
+  });
+  actions.appendChild(button);
+
+  card.appendChild(preview);
+  card.appendChild(name);
+  card.appendChild(size);
+  card.appendChild(actions);
+
+  return card;
+};
+
+const downloadFile = (dataUrl, filename) => {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  link.click();
+};
+
+const processFiles = async (files) => {
+  if (!files.length) {
     resetState();
     return;
   }
 
-  trimImage(file, toleranceInput.value).catch((err) => {
-    setMessage(err.message);
-  });
+  results.innerHTML = "";
+  trimmedItems = [];
+  countMeta.textContent = "0件";
+  downloadAllBtn.disabled = true;
+  clearBtn.disabled = false;
+  setMessage("トリミング中...");
+
+  let failedCount = 0;
+  for (const file of files) {
+    try {
+      const trimmed = await trimImage(file, toleranceInput.value);
+      if (!trimmed) {
+        failedCount += 1;
+        continue;
+      }
+      const item = {
+        file,
+        ...trimmed,
+      };
+      trimmedItems.push(item);
+      results.appendChild(createResultCard(item));
+      countMeta.textContent = `${trimmedItems.length}件`;
+    } catch (err) {
+      failedCount += 1;
+    }
+  }
+
+  if (trimmedItems.length === 0) {
+    renderEmptyState();
+  }
+
+  downloadAllBtn.disabled = trimmedItems.length === 0;
+
+  if (failedCount > 0 && trimmedItems.length > 0) {
+    setMessage(`一部の画像はトリミングできませんでした（${failedCount}件）。`);
+  } else if (failedCount > 0) {
+    setMessage("余白以外が見つかりませんでした。許容誤差を調整してください。");
+  } else {
+    setMessage("");
+  }
+};
+
+toleranceInput.addEventListener("input", () => {
+  toleranceValue.textContent = toleranceInput.value;
+  if (fileInput.files && fileInput.files.length > 0) {
+    processFiles(Array.from(fileInput.files));
+  }
+});
+
+fileInput.addEventListener("change", () => {
+  const files = fileInput.files ? Array.from(fileInput.files) : [];
+  processFiles(files);
 });
 
 const handleDroppedFile = (file) => {
   if (!file) return;
-  trimImage(file, toleranceInput.value).catch((err) => {
-    setMessage(err.message);
-  });
+  processFiles([file]);
 };
 
 const setDragState = (isDragging) => {
@@ -255,25 +359,55 @@ const setDragState = (isDragging) => {
 });
 
 dropArea.addEventListener("drop", (event) => {
-  const file = event.dataTransfer?.files?.[0];
-  if (file) {
+  const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
+  if (files.length > 0) {
     try {
       const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(file);
+      files.forEach((file) => dataTransfer.items.add(file));
       fileInput.files = dataTransfer.files;
     } catch (err) {
       // Ignore if DataTransfer is not available; we still handle the file directly.
     }
   }
-  handleDroppedFile(file);
+  if (files.length === 1) {
+    handleDroppedFile(files[0]);
+  } else if (files.length > 1) {
+    processFiles(files);
+  }
 });
 
-downloadBtn.addEventListener("click", () => {
-  if (!trimmedDataUrl) return;
-  const link = document.createElement("a");
-  link.href = trimmedDataUrl;
-  link.download = trimmedFilename || "trimmed.png";
-  link.click();
+downloadAllBtn.addEventListener("click", () => {
+  if (trimmedItems.length === 0) return;
+  setMessage("ZIPを作成中...");
+  const zip = new JSZip();
+  const usedNames = new Set();
+
+  trimmedItems.forEach((item) => {
+    const filename = getUniqueFilename(item.filename, usedNames);
+    const base64 = dataUrlToBase64(item.dataUrl);
+    zip.file(filename, base64, { base64: true });
+  });
+
+  zip
+    .generateAsync({ type: "blob" })
+    .then((content) => {
+      const url = URL.createObjectURL(content);
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      link.href = url;
+      link.download = `trimmed-images-${timestamp}.zip`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("ZIPダウンロードを開始しました。");
+    })
+    .catch(() => {
+      setMessage("ZIPの作成に失敗しました。");
+    });
+});
+
+clearBtn.addEventListener("click", () => {
+  fileInput.value = "";
+  resetState();
 });
 
 resetState();
